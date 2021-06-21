@@ -19,7 +19,6 @@ DIGIT              [0-9]
 SLETTER            [a-z]
 CLETTER            [A-Z]
 IDENTIFIER         ({CLETTER}|{SLETTER}|_)({CLETTER}|{SLETTER}|{DIGIT}|_)*
-NIDENTIFIER        ({DIGIT})({CLETTER}|{SLETTER}|{DIGIT}|-)+
 KEYWORD            "int"|"char"|"if"|"else"|"elseif"|"while"|"continue"|"break"|"for"|"return"|"void"|"main"             
 SINGLELINE         (\$\$.*) 
 MULTILINE          (\$\*([^*]|[\r\n]|(\*+([^*\$]|[\r\n])))*\*+\$)
@@ -29,7 +28,7 @@ WHITESPACE         [ \n\t]
 CHARACTER          ((\')({DIGIT}|{SLETTER}|{CLETTER})(\'))|(\'(\\.|[^'\\])\')       
 ARITHMETIC         "+"|"-"|"*"|"/"|"^"
 SIGNS              "<"|"<="|"=="|"!="|">"|">="|"|"|"&"|"||"|"&&"|"="|")"|"("|"]"|"["|"}"|"{"|","|"."            
-INTEGER            (\+|-)*{DIGIT}+
+INTEGER            (-)*{DIGIT}+
 
 %%
 
@@ -70,7 +69,7 @@ INTEGER            (\+|-)*{DIGIT}+
     else if(s == "continue"){
         count();
         yylval.token._val= new string(yytext);
-        return TOKEN_CONTINU;
+        return TOKEN_CONTINUE;
     }
     else if(s == "break"){
         count();
@@ -90,7 +89,7 @@ INTEGER            (\+|-)*{DIGIT}+
     else if(s == "void"){
         count();
         yylval.token._val= new string(yytext);
-        return TOKEN_VOID;
+        return TOKEN_VOIDTYPE;
     }
     else if(s == "main"){
         count();
@@ -101,14 +100,11 @@ INTEGER            (\+|-)*{DIGIT}+
 
 {IDENTIFIER}            {
     count();
-    yylval.token._val= string(yytext);
+    yylval.token._val= new string(yytext);
     return TOKEN_ID;
 }
 
-{NIDENTIFIER}           {
-    printf("\nERROR IN LINE %d COLUMN %d : wrong id definition",yylineno,columnNo);
-    return 1;
-}
+
 
 {WHITESPACE}            {
 
@@ -151,7 +147,7 @@ INTEGER            (\+|-)*{DIGIT}+
     long long int x = atoll(yytext);
     if(x < upper_bound && x > lower_bound){
         count();
-        yylval.token._val= string(yytext);
+        yylval.token._val= new string(yytext);
         return TOKEN_INTCONST;
     }
     else{
@@ -162,13 +158,14 @@ INTEGER            (\+|-)*{DIGIT}+
 
 {CHARACTER}             {  
     count();
-    yylval.token._val= string(yytext);
+    yylval.token._val= new string(yytext);
     return TOKEN_CHARCONST;
 }
 
 {ARITHMETIC}            {  
     count();
-    yylval.token._val = string(yytext);
+    yylval.token._val = new string(yytext);
+    string s = string(yytext);
     if(s == "+")
         return TOKEN_PLUS;
     else if(s == "-")
@@ -184,91 +181,85 @@ INTEGER            (\+|-)*{DIGIT}+
 
 {SIGNS}                 {
 
+    string s = string(yytext);
+
     if(s == "<"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_LS;}
     else if(s == "<="){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_LSEQ;}
     else if(s == "=="){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_EQ;}
     else if(s == "!="){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_NOTEQ;}
     else if(s == ">"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_GR;}
     else if(s == ">="){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_GREQ;}
     else if(s == "|"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_BITWISEOR;}
     else if(s == "&"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_BITWISEAND;}
     
     else if(s == "||"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_LOGICOR;}
     else if(s == "&&"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_LOGICAND;}
 
     else if(s == "!"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_LOGICNOT;}
     else if(s == "<"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_LS;}
     else if(s == "="){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_ASSIGNOP;}
     else if(s == ")"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_RIGHTPAREN;}
     else if(s == "("){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_LEFTPAREN;}
     else if(s == "]"){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_RB;}
     else if(s == "["){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_LB;}
-    else if(s == "}"){
-        count();
-        yylval.token._val=string(yytext);
-        return TOKEN_RCB;}
-    else if(s == "{"){
-        count();
-        yylval.token._val=string(yytext);
-        return TOKEN_LCB;}
     else if(s == "."){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_DOT;}
     else if(s == ","){
         count();
-        yylval.token._val=string(yytext);
+        yylval.token._val = new string(yytext);
         return TOKEN_COMMA;}
 }
 %%
@@ -287,3 +278,4 @@ void count(void)
 			columnNo++;
 
 }
+

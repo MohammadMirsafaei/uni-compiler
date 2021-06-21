@@ -10,8 +10,8 @@ $ sh Phase1.sh
 It will use predefined sample named `sample`.
 
 ## ***Customized input***
-If you want to run your own sample, you can simply edit `sample` file or pass path to your sample, absolute or relative ro bash script path, while running `Phase1.hs`:
+If you want to run your own sample, you can simply edit `sample` file or pass path to your sample, absolute or relative ro bash script path, while running `Phase1.sh`:
 
 ```
-$ sh Phase1.sh -sample <path_to_sample>
+$ sh Phase1.sh -s <path_to_sample>
 ```

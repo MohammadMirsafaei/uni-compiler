@@ -253,14 +253,6 @@ INTEGER            (\+|-)*{DIGIT}+
         count();
         
         fprintf(outfp, "TOKEN_LB\n");}
-    else if(s == "}"){
-        count();
-        
-        fprintf(outfp, "TOKEN_RCB\n");}
-    else if(s == "{"){
-        count();
-        
-        fprintf(outfp, "TOKEN_LCB\n");}
     else if(s == "."){
         count();
         
