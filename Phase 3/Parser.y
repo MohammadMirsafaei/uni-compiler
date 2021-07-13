@@ -5,20 +5,56 @@ using namespace std;
 }
 %{
           
-     #include <stdio.h>
-     #include <iostream>
-     #include <stdlib.h>
-     #include <string>
-     #include <cstring>
+    #include <stdio.h>
+    #include <iostream>
+    #include <stdlib.h>
+    #include <string>
+    #include <cstring>
+    #include <fstream>
+    #include <map>
 
 
+    using namespace std;
 
-     using namespace std;
 
-     extern int yylex();
-     extern FILE* yyin;
-     void yyerror(const char* s);
-     int yyparse();
+    struct varialbe_s {
+        string value;
+        int type; // 0:int 1:char 2:void
+        int scope;
+        int place;
+    };
+
+
+    map<pair<string, int>, struct varialbe_s> variables;
+    map<int,int> scopes;
+
+    int current_dtype;
+    int is_declaration = 0;
+    int is_loop = 0;
+    int is_func = 0;
+    int func_type;
+    int out = 0;
+    int rhs = 0;
+    int scopeNo=0;
+    int prevscopeNo=0;
+    int clacStart=0;
+    int conditionNo=0;
+    int loopNo=0;
+
+
+    extern int yylex();
+    extern FILE* yyin;
+    void yyerror(const char* s);
+    int yyparse();
+    void add_var(string value,string name, int type, int scope);
+    int get_last_var_pos(int scope);
+    int add_scope(int parent);
+
+    string code_gen_init_func(int scope);
+    string code_gen_end_func(int scope);
+
+
+    ofstream code_file("code.asm");
 
 %}
 
@@ -28,6 +64,9 @@ using namespace std;
 %union {
      struct t {
           std::string *  _val;
+          int _type; // 0:int 1:char 2:void
+          int _scope;
+          std::string * _asm;
      }token;
 }
 
@@ -77,15 +116,39 @@ using namespace std;
 
 %%
 
-program:                globalVars  
+program:                globalVars  {
+    $$._asm = new string(*($1._asm));
+
+    code_file << *($$._asm);
+
+}
                         ;
 
 
-globalVars:             typeSpecifier   identifier   TOKEN_ASSIGNOP   constants TOKEN_DOT   globalVars                                                                                             
-                        |function 
+globalVars:             typeSpecifier   identifier   TOKEN_ASSIGNOP   constants TOKEN_DOT   globalVars {
+    
+    
+    add_var(*($4._val),*($2._val), $4._type, 0);
+    
+    string tmp;
+
+    tmp = string("\n") + string(*($2._val)) + string(":") + string("\n\t.word\t") + string(*($4._val));
+    $$._asm = new string(tmp + *$6._asm);
+
+}                                                                                       
+                        |function {$$._asm = new string(*$1._asm);}
                         ;
 
-function:               typeSpecifier   TOKEN_MAIN TOKEN_LEFTPAREN   TOKEN_RIGHTPAREN   compoundStmt    
+function:               typeSpecifier   TOKEN_MAIN {func_type = current_dtype;is_declaration = 0;} TOKEN_LEFTPAREN {scopeNo = add_scope(scopeNo);}  TOKEN_RIGHTPAREN {is_declaration = 0;is_func = 1;}  compoundStmt {
+    is_func = 0;
+    if ($1._type != 0 )
+        yyerror("main function must be of type INT");
+    
+    
+    $$._asm = new string(string("\nmain") + string(":") + code_gen_init_func(scopeNo) + *($8._asm) + code_gen_end_func(scopeNo));
+
+
+}   
                         |typeSpecifier   identifier   TOKEN_LEFTPAREN   argumentList   TOKEN_RIGHTPAREN   compoundStmt   function 
                         ;
 
@@ -109,7 +172,7 @@ stmt:                   compoundStmt
                         |singleStmt 
                         ;
 
-compoundStmt:           TOKEN_LS   statements   TOKEN_GR 
+compoundStmt:           TOKEN_LS   statements   TOKEN_GR {$$._asm = new string("\n\tnop");} 
                         ;
 
 
@@ -196,7 +259,9 @@ lhs:                    identifier
                         |array_access              
                         ;
 
-identifier:             TOKEN_ID                  
+identifier:             TOKEN_ID {
+    $$._val = new string(*($1._val));
+}                 
                         ;
 
 arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr        
@@ -225,13 +290,13 @@ array_access:           identifier TOKEN_LB constants TOKEN_RB
 
 
 
-typeSpecifier:          TOKEN_INTTYPE 
-                        |TOKEN_CHARTYPE 
-                        |TOKEN_VOIDTYPE 
+typeSpecifier:          TOKEN_INTTYPE {$$._type = 0;is_declaration = 1;}
+                        |TOKEN_CHARTYPE {$$._type = 1;is_declaration = 1;}
+                        |TOKEN_VOIDTYPE {$$._type = 2;is_declaration = 1;}
                         ;
 
-constants:              TOKEN_INTCONST 
-                        |TOKEN_CHARCONST 
+constants:              TOKEN_INTCONST {$$._val = new string(*($1._val)); $$._type = 0;  }
+                        |TOKEN_CHARCONST {$$._val = new string(*($1._val)); $$._type = 1;}
                         ;   
 
 
@@ -245,8 +310,68 @@ void yyerror(const char *s) {
   extern int columnNo;
   cout<<"[-] ERROR : LINE "<<yylineno<<" COLUMN "<<columnNo<<" : "<<s<<"\n";
 }
+int get_last_var_pos(int scope) {
+    int max_pos = -1;
+    for (auto const& x : variables)
+    {
+        if(x.first.second == scope) {
+            if(x.second.place > max_pos) {
+                max_pos = x.second.place;        
+            }
+        }
+    }
+    return max_pos;
+}
+
+void add_var(string value,string name, int type, int scope) {
+    struct varialbe_s tmp;
+    if(variables.find(pair<string, int>(name,scope)) != variables.end()) {
+        yyerror("Redeclaration of variable");
+    }
+    tmp.place = get_last_var_pos(scope) + 1;
+    tmp.scope = scope;
+    tmp.value = value;
+    tmp.type = type;
+
+    variables[pair<string,int>(name,scope)] = tmp;
+
+}
+int add_scope(int parent) {
+    int max_scope = 0;
+    for (auto const& x : scopes)
+    {
+        if(x.first > max_scope) {
+            max_scope = x.first;
+        }
+    }
+    scopes[max_scope+1] = parent;
+    return max_scope+1;
+}
+
+string code_gen_init_func(int scope) {
+    int var_num = get_last_var_pos(scope)+1;
+    return string("\n\taddiu\t$sp,$sp,-")
+                 + to_string(8+4*var_num) 
+                 + string("\n\tsw\t$fp,") 
+                 + to_string(8+4*var_num-4)
+                 + string("($sp)")
+                 + string("\n\tmove\t$fp,$sp");
+
+}
+string code_gen_end_func(int scope) {
+    int var_num = get_last_var_pos(scope)+1;
+    return string("\n\tmove\t$sp,$fp")
+                 + string("\n\tlw\t$fp,")
+                 + to_string(8+4*var_num-4) 
+                 + string("($sp)") 
+                 + string("\n\tmove\t$fp,$sp") 
+                 + string("\n\taddiu\t$sp,$sp,") 
+                 + to_string(8+4*var_num) 
+                 + string("\n\tj\t$31") 
+                 + string("\n\tnop");
 
 
+}
 /*==============================================================main function===============================================================*/
 
 int main(int argc , char* argv[]) {
