@@ -3,9 +3,8 @@ int b = 3.
 
 
 int main() <
-    $$char c = 'a'.
     int c = 2.
-    int k = 3.
-    int d = c + k + 2.
+    int b = 3.
+    int d = c - 5.
     
 >

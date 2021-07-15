@@ -60,7 +60,10 @@ using namespace std;
     string code_gen_sw(string reg, int place);
     string code_gen_li(string reg, int num);
     string code_gen_addu(string reg1, string reg2, string reg_res);
-    string code_gen_addiu(string reg1, int num, string reg_res);    
+    string code_gen_addiu(string reg1, int num, string reg_res);  
+    string code_gen_mult(string reg1, string reg2, string reg_res);
+    string code_gen_subu(string reg1, string reg2, string reg_res);
+
 
     string alloc_reg();
     void free_regs();
@@ -361,8 +364,59 @@ arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr {
                             
 
                         }       
-                        |arithmetic_expr   TOKEN_MINUS   arithmetic_expr       
-                        |arithmetic_expr   TOKEN_MUL   arithmetic_expr         
+                        |arithmetic_expr   TOKEN_MINUS   arithmetic_expr {
+                            type_check($1._type,$3._type,0);
+
+                            if($1._is_num && $3._is_num) {
+                                int val = $1._value - $3._value;
+                                string tmp = code_gen_li("t0", val);
+                                $$._asm = new string(tmp);
+                                $$._is_num = 1;
+                                $$._value = val;
+                                free_reg(string(*$1._reg));
+                                free_reg(string(*$3._reg));
+                            } else if (!$1._is_num && !$3._is_num) {
+                                string tmp = "";
+                                tmp += string(*$1._asm);
+                                tmp += string(*$3._asm);
+                                tmp += code_gen_subu(string(*$1._reg), string(*$3._reg), "t0");
+                                $$._asm = new string(tmp);
+                                $$._is_num = 0;
+                            } else if ($1._is_num) {
+                                string tmp = "";
+                                tmp += string(*$3._asm);
+                                tmp += code_gen_addiu(string(*$3._reg), $1._value*-1, "t0");
+                                $$._asm = new string(tmp);
+                                free_reg(string(*$1._reg));
+                            } else {
+                                string tmp = "";
+                                tmp += string(*$1._asm);
+                                tmp += code_gen_addiu(string(*$1._reg), $3._value*-1, "t0");
+                                $$._asm = new string(tmp);
+                                free_reg(string(*$3._reg));
+                            }
+                        }      
+                        |arithmetic_expr   TOKEN_MUL   arithmetic_expr {
+                            type_check($1._type,$3._type,0);
+
+                            if($1._is_num && $3._is_num) {
+                                int val = $1._value * $3._value;
+                                string tmp = code_gen_li("t0", val);
+                                $$._asm = new string(tmp);
+                                $$._is_num = 1;
+                                $$._value = val;
+                                free_reg(string(*$1._reg));
+                                free_reg(string(*$3._reg));
+                            } else {
+                                string tmp = "";
+                                tmp += string(*$1._asm);
+                                tmp += string(*$3._asm);
+                                tmp += code_gen_mult(string(*$1._reg), string(*$3._reg), "t0");
+                                $$._asm = new string(tmp);
+                                $$._is_num = 0;
+                            } 
+                            
+                        }        
                         |arithmetic_expr   TOKEN_DIV   arithmetic_expr         
                         |arithmetic_expr   TOKEN_POW   arithmetic_expr         
                         |arithmetic_expr   TOKEN_BITWISEAND   arithmetic_expr         
@@ -553,6 +607,15 @@ string code_gen_addu(string reg1, string reg2, string reg_res) {
 
 string code_gen_addiu(string reg1, int num, string reg_res) {
     return string("\n\taddiu\t$") + reg_res + string(",$") + reg1 + string(",") + to_string(num);
+}
+
+string code_gen_mult(string reg1, string reg2, string reg_res) {
+    return string("\n\tmult\t$") + reg1 + string(",$") + reg2
+            + string("\n\tmflo\t$") + reg_res;
+}
+
+string code_gen_subu(string reg1, string reg2, string reg_res) {
+    return string("\n\tsubu\t$") + reg_res + string(",$") + reg1 + string(",$") + reg2;
 }
 /*==============================================================main function===============================================================*/
 
