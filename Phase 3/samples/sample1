@@ -1,5 +1,8 @@
 int a = 2.
-int a = 3.
-int main() <
+int b = 3.
 
+
+int main() <
+    $$char c = 'a'.
+    int d = 10.
 >

@@ -52,6 +52,9 @@ using namespace std;
 
     string code_gen_init_func(int scope);
     string code_gen_end_func(int scope);
+    int is_var_declared(string name, int scope);
+    void type_check(int left, int right, int flag);
+    struct varialbe_s get_var(string name, int scope);
 
 
     ofstream code_file("code.asm");
@@ -83,7 +86,7 @@ using namespace std;
 
 
 
-%type <token> constants typeSpecifier  identifier   declaration_list sub_decl elseif  conditionStmtElseIf 
+%type <token> constants typeSpecifier  identifier    sub_decl elseif  conditionStmtElseIf 
 %type <token> sub_expr program globalVars loopStmt conditionStmt 
 %type <token> arithmetic_expr stmt
 %type <token> assignment_expr
@@ -117,39 +120,52 @@ using namespace std;
 %%
 
 program:                globalVars  {
-    $$._asm = new string(*($1._asm));
+                            $$._asm = new string(*($1._asm));
 
-    code_file << *($$._asm);
+                            code_file << *($$._asm);
 
-}
+                        }
                         ;
 
 
 globalVars:             typeSpecifier   identifier   TOKEN_ASSIGNOP   constants TOKEN_DOT   globalVars {
-    
-    
-    add_var(*($4._val),*($2._val), $4._type, 0);
-    
-    string tmp;
+                            
+                            
+                            add_var(*($4._val),*($2._val), $4._type, 0);
+                            
+                            string tmp;
 
-    tmp = string("\n") + string(*($2._val)) + string(":") + string("\n\t.word\t") + string(*($4._val));
-    $$._asm = new string(tmp + *$6._asm);
+                            tmp = string("\n") + string(*($2._val)) + string(":") + string("\n\t.word\t") + string(*($4._val));
+                            $$._asm = new string(tmp + *$6._asm);
 
-}                                                                                       
-                        |function {$$._asm = new string(*$1._asm);}
+                        }                                                                                       
+                        |function {
+                            $$._asm = new string(*$1._asm);
+                        }
                         ;
 
-function:               typeSpecifier   TOKEN_MAIN {func_type = current_dtype;is_declaration = 0;} TOKEN_LEFTPAREN {scopeNo = add_scope(scopeNo);}  TOKEN_RIGHTPAREN {is_declaration = 0;is_func = 1;}  compoundStmt {
-    is_func = 0;
-    if ($1._type != 0 )
-        yyerror("main function must be of type INT");
-    
-    
-    $$._asm = new string(string("\nmain") + string(":") + code_gen_init_func(scopeNo) + *($8._asm) + code_gen_end_func(scopeNo));
+function:               typeSpecifier   TOKEN_MAIN {func_type = current_dtype;is_declaration = 0;} TOKEN_LEFTPAREN {scopeNo = add_scope(0);}  TOKEN_RIGHTPAREN {is_declaration = 0;is_func = 1;}  compoundStmt {
+                            is_func = 0;
+                            
+                            if ($1._type != 0 )
+                                yyerror("main function must be of type INT");
+                            
+                            
+                            $$._asm = new string(string("\nmain") + string(":") + code_gen_init_func($8._scope) + *($8._asm) + code_gen_end_func($8._scope));
 
 
-}   
-                        |typeSpecifier   identifier   TOKEN_LEFTPAREN   argumentList   TOKEN_RIGHTPAREN   compoundStmt   function 
+                        }   
+                        |typeSpecifier   identifier { 
+                            func_type = current_dtype;
+                            is_declaration = 0;
+                            $2._type=$1._type;
+                        }   TOKEN_LEFTPAREN {scopeNo = add_scope(0);is_func=1;}  argumentList   TOKEN_RIGHTPAREN   compoundStmt {is_func=0;}   function {
+                            
+                            
+                            $$._asm = new string(string("\n") + string(*$2._val) + string(":") + code_gen_init_func($8._scope) + *($8._asm) + code_gen_end_func($8._scope));
+                            
+                            $$._asm = new string(string(*$$._asm) + string(*$10._asm));
+                        }
                         ;
 
 argumentList:           arguments 
@@ -164,22 +180,30 @@ arg:                    typeSpecifier   identifier
                         ;
 
 
-statements:             statements   stmt 
+statements:             statements   stmt {
+    if($$._asm == nullptr)
+        $$._asm = new string("");
+    $$._asm = new string( string(*$$._asm) + string(*$2._asm) );
+}
                         | {}
                         ;
 
 stmt:                   compoundStmt 
-                        |singleStmt 
+                        |singleStmt {$$._asm = new string(*$1._asm);}
                         ;
 
-compoundStmt:           TOKEN_LS   statements   TOKEN_GR {$$._asm = new string("\n\tnop");} 
+compoundStmt:           TOKEN_LS   statements   TOKEN_GR {
+                            $$._scope = scopeNo;
+                            // $$._asm = new string("\n\taaaa");
+                            $$._asm = new string(*$2._asm);
+                        } 
                         ;
 
 
 
 singleStmt:             conditionStmt 
                         |loopStmt 
-                        |declaration 
+                        |declaration {$$._asm = new string(*$1._asm);}
                         |functionCall   TOKEN_DOT 
 	                    |TOKEN_RETURN   TOKEN_DOT 
                         |TOKEN_CONTINUE   TOKEN_DOT 
@@ -216,16 +240,20 @@ parameter_list:         parameter_list   TOKEN_COMMA   parameter
 parameter:              sub_expr            
                         ;
 
-declaration:            typeSpecifier   declaration_list   TOKEN_DOT 
-			            |declaration_list   TOKEN_DOT 
+declaration:            typeSpecifier  sub_decl  TOKEN_DOT {
+                            is_declaration = 0;
+                            
+                            $$._asm = new string(*$2._asm);
+                            
+                        }
                         ;
 
-declaration_list:       declaration_list   TOKEN_COMMA   sub_decl 
-		                |sub_decl 
-                        ;
-
-sub_decl:               assignment_expr 
-                        |identifier           
+sub_decl:               assignment_expr {
+                            $$._asm = new string(*$1._asm);
+                        }
+                        |identifier {
+                            add_var(string("0"),string(*$1._val), current_dtype, scopeNo);
+                        }       
                         |array_access 
                         ;
 
@@ -245,23 +273,41 @@ sub_expr:               sub_expr   TOKEN_GR   sub_expr
                         |assignment_expr                            
                         ;
 
-assgn :                 TOKEN_ASSIGNOP
+assgn :                 TOKEN_ASSIGNOP {rhs=1;}
                         ;
 
-assignment_expr :       lhs assgn  arithmetic_expr         
+assignment_expr :       lhs assgn  arithmetic_expr  {
+                            type_check($1._type,$3._type,1);
+                            rhs=0;
+                            add_var(string(*$3._val),string(*$1._val), current_dtype, scopeNo);
+
+                            string tmp = "";
+                            tmp += string("\n\tli\t$t0,") + string(*$3._val);
+                            tmp += string("\n\tsw\t$t0,") + to_string(8 + 4*get_var(string(*$1._val),scopeNo).place) + string("($fp)");
+                            $$._asm = new string(tmp);
+                            /*$$._type = $3._type;
+                            rhs=0;
+                            $$._asm = new string(*$3._asm);*/
+                        }     
                         |lhs assgn  functionCall            
                         |lhs assgn array_init     
                         ;
 
 
 
-lhs:                    identifier                
+lhs:                    identifier {
+                            if(!is_declaration && !is_var_declared(string(*$1._val), scopeNo)) {
+                                yyerror("Variable not declared, but is used in assigment");
+                            }
+                            $$._type = $1._type;
+                        }          
                         |array_access              
                         ;
 
 identifier:             TOKEN_ID {
-    $$._val = new string(*($1._val));
-}                 
+                            $$._val = new string(*($1._val));
+                            $$._type = current_dtype;
+                        }                 
                         ;
 
 arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr        
@@ -273,8 +319,14 @@ arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr
                         |arithmetic_expr   TOKEN_BITWISEOR   arithmetic_expr         
                         |TOKEN_LEFTPAREN   arithmetic_expr   TOKEN_RIGHTPAREN   
                         |TOKEN_MINUS   arithmetic_expr   %prec UMINUS           
-                        |identifier                                         
-                        |constants 
+                        |identifier {
+                            $$._asm = new string("\n\ttesst");
+                        }                                        
+                        |constants {
+                            
+                            $$._val = $1._val;
+                            $$._type = $1._type;
+                        }
                         |array_access 
                         ;
 
@@ -290,9 +342,9 @@ array_access:           identifier TOKEN_LB constants TOKEN_RB
 
 
 
-typeSpecifier:          TOKEN_INTTYPE {$$._type = 0;is_declaration = 1;}
-                        |TOKEN_CHARTYPE {$$._type = 1;is_declaration = 1;}
-                        |TOKEN_VOIDTYPE {$$._type = 2;is_declaration = 1;}
+typeSpecifier:          TOKEN_INTTYPE {$$._type = 0;is_declaration = 1;current_dtype=0;}
+                        |TOKEN_CHARTYPE {$$._type = 1;is_declaration = 1;current_dtype=1;}
+                        |TOKEN_VOIDTYPE {$$._type = 2;is_declaration = 1;current_dtype=2;}
                         ;
 
 constants:              TOKEN_INTCONST {$$._val = new string(*($1._val)); $$._type = 0;  }
@@ -303,12 +355,28 @@ constants:              TOKEN_INTCONST {$$._val = new string(*($1._val)); $$._ty
 
 %%
 /*==============================================================error handling===============================================================*/
+void type_check(int left, int right, int flag)
+{
+	if(left != right)
+	{
+		switch(flag)
+		{
+			case 0: yyerror("Type mismatch in arithmetic expression"); exit(0); break;
+			case 1: yyerror("Type mismatch in assignment expression"); exit(0); break;
+			case 2: yyerror("Type mismatch in logical expression"); exit(0); break;
+		}
+	}
+}
 
+struct varialbe_s get_var(string name, int scope) {
+    return variables[pair<string,int>(name,scope)];
+}
 
 void yyerror(const char *s) {
   extern int yylineno;
   extern int columnNo;
   cout<<"[-] ERROR : LINE "<<yylineno<<" COLUMN "<<columnNo<<" : "<<s<<"\n";
+  exit(0);
 }
 int get_last_var_pos(int scope) {
     int max_pos = -1;
@@ -321,6 +389,13 @@ int get_last_var_pos(int scope) {
         }
     }
     return max_pos;
+}
+
+int is_var_declared(string name, int scope) {
+    if(variables.find(pair<string, int>(name,scope)) != variables.end()) {
+        return 1;
+    }
+    return 0;
 }
 
 void add_var(string value,string name, int type, int scope) {
@@ -351,9 +426,9 @@ int add_scope(int parent) {
 string code_gen_init_func(int scope) {
     int var_num = get_last_var_pos(scope)+1;
     return string("\n\taddiu\t$sp,$sp,-")
-                 + to_string(8+4*var_num) 
+                 + to_string(8+4*(var_num+1)) 
                  + string("\n\tsw\t$fp,") 
-                 + to_string(8+4*var_num-4)
+                 + to_string(8+4*(var_num+1)-4)
                  + string("($sp)")
                  + string("\n\tmove\t$fp,$sp");
 
@@ -362,11 +437,11 @@ string code_gen_end_func(int scope) {
     int var_num = get_last_var_pos(scope)+1;
     return string("\n\tmove\t$sp,$fp")
                  + string("\n\tlw\t$fp,")
-                 + to_string(8+4*var_num-4) 
+                 + to_string(8+4*(var_num+1)-4) 
                  + string("($sp)") 
                  + string("\n\tmove\t$fp,$sp") 
                  + string("\n\taddiu\t$sp,$sp,") 
-                 + to_string(8+4*var_num) 
+                 + to_string(8+4*(var_num+1)) 
                  + string("\n\tj\t$31") 
                  + string("\n\tnop");
 
@@ -387,4 +462,19 @@ int main(int argc , char* argv[]) {
     
 
     fclose(fp);
+
+    // for (auto const& x : variables)
+    // {
+    //     cout << "name:" << x.first.first 
+    //         << ", scope:" << x.first.second
+    //         << ", func:" << get_last_var_pos(x.first.second)
+    //         << endl;
+    // }
+
+    // for (auto const& x : scopes)
+    // {
+    //     cout << "self:" << x.first 
+    //         << ", parent:" << x.second
+    //         << endl;
+    // }
 }

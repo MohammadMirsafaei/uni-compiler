@@ -158,7 +158,7 @@ INTEGER            (-)*{DIGIT}+
 
 {CHARACTER}             {  
     count();
-    yylval.token._val= new string(yytext);
+    yylval.token._val= new string(to_string(int(yytext[1])));
     return TOKEN_CHARCONST;
 }
 
