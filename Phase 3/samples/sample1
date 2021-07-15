@@ -5,4 +5,5 @@ int b = 3.
 int main() <
     $$char c = 'a'.
     int d = 10.
+    int c = d.
 >

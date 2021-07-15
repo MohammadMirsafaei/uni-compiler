@@ -282,7 +282,7 @@ assignment_expr :       lhs assgn  arithmetic_expr  {
                             add_var(string(*$3._val),string(*$1._val), current_dtype, scopeNo);
 
                             string tmp = "";
-                            tmp += string("\n\tli\t$t0,") + string(*$3._val);
+                            tmp += string(*$3._asm);
                             tmp += string("\n\tsw\t$t0,") + to_string(8 + 4*get_var(string(*$1._val),scopeNo).place) + string("($fp)");
                             $$._asm = new string(tmp);
                             /*$$._type = $3._type;
@@ -320,10 +320,13 @@ arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr
                         |TOKEN_LEFTPAREN   arithmetic_expr   TOKEN_RIGHTPAREN   
                         |TOKEN_MINUS   arithmetic_expr   %prec UMINUS           
                         |identifier {
-                            $$._asm = new string("\n\ttesst");
+                            string tmp = string("\n\tlw\t$t0,") + to_string(8 + 4*get_var(string(*$1._val),scopeNo).place) + string("($fp)");
+                            $$._asm = new string(tmp);
+                            $$._type = $1._type;
                         }                                        
                         |constants {
-                            
+                            string tmp = string("\n\tli\t$t0,") + string(*$1._val);
+                            $$._asm = new string(tmp);
                             $$._val = $1._val;
                             $$._type = $1._type;
                         }
