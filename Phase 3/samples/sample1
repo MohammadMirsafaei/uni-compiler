@@ -4,6 +4,8 @@ int b = 3.
 
 int main() <
     $$char c = 'a'.
-    int d = 10.
-    int c = d.
+    int c = 2.
+    int k = 3.
+    int d = c + k + 2.
+    
 >

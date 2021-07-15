@@ -28,6 +28,10 @@ using namespace std;
     map<pair<string, int>, struct varialbe_s> variables;
     map<int,int> scopes;
 
+    map<int,int> regs;
+
+    
+
     int current_dtype;
     int is_declaration = 0;
     int is_loop = 0;
@@ -52,6 +56,17 @@ using namespace std;
 
     string code_gen_init_func(int scope);
     string code_gen_end_func(int scope);
+    string code_gen_lw(string reg, int place);
+    string code_gen_sw(string reg, int place);
+    string code_gen_li(string reg, int num);
+    string code_gen_addu(string reg1, string reg2, string reg_res);
+    string code_gen_addiu(string reg1, int num, string reg_res);    
+
+    string alloc_reg();
+    void free_regs();
+    void free_reg(string reg);
+    void init_regs();
+
     int is_var_declared(string name, int scope);
     void type_check(int left, int right, int flag);
     struct varialbe_s get_var(string name, int scope);
@@ -70,6 +85,9 @@ using namespace std;
           int _type; // 0:int 1:char 2:void
           int _scope;
           std::string * _asm;
+          std::string * _reg;
+          int _value;
+          int _is_num;
      }token;
 }
 
@@ -283,11 +301,10 @@ assignment_expr :       lhs assgn  arithmetic_expr  {
 
                             string tmp = "";
                             tmp += string(*$3._asm);
-                            tmp += string("\n\tsw\t$t0,") + to_string(8 + 4*get_var(string(*$1._val),scopeNo).place) + string("($fp)");
+                            tmp += code_gen_sw("t0", get_var(string(*$1._val),scopeNo).place);
+                            
                             $$._asm = new string(tmp);
-                            /*$$._type = $3._type;
-                            rhs=0;
-                            $$._asm = new string(*$3._asm);*/
+                            free_regs();
                         }     
                         |lhs assgn  functionCall            
                         |lhs assgn array_init     
@@ -310,7 +327,40 @@ identifier:             TOKEN_ID {
                         }                 
                         ;
 
-arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr        
+arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr {
+                            type_check($1._type,$3._type,0);
+
+                            if($1._is_num && $3._is_num) {
+                                int val = $1._value + $3._value;
+                                string tmp = code_gen_li("t0", val);
+                                $$._asm = new string(tmp);
+                                $$._is_num = 1;
+                                $$._value = val;
+                                free_reg(string(*$1._reg));
+                                free_reg(string(*$3._reg));
+                            } else if (!$1._is_num && !$3._is_num) {
+                                string tmp = "";
+                                tmp += string(*$1._asm);
+                                tmp += string(*$3._asm);
+                                tmp += code_gen_addu(string(*$1._reg), string(*$3._reg), "t0");
+                                $$._asm = new string(tmp);
+                                $$._is_num = 0;
+                            } else if ($1._is_num) {
+                                string tmp = "";
+                                tmp += string(*$3._asm);
+                                tmp += code_gen_addiu(string(*$3._reg), $1._value, "t0");
+                                $$._asm = new string(tmp);
+                                free_reg(string(*$1._reg));
+                            } else {
+                                string tmp = "";
+                                tmp += string(*$1._asm);
+                                tmp += code_gen_addiu(string(*$1._reg), $3._value, "t0");
+                                $$._asm = new string(tmp);
+                                free_reg(string(*$3._reg));
+                            }
+                            
+
+                        }       
                         |arithmetic_expr   TOKEN_MINUS   arithmetic_expr       
                         |arithmetic_expr   TOKEN_MUL   arithmetic_expr         
                         |arithmetic_expr   TOKEN_DIV   arithmetic_expr         
@@ -320,15 +370,21 @@ arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr
                         |TOKEN_LEFTPAREN   arithmetic_expr   TOKEN_RIGHTPAREN   
                         |TOKEN_MINUS   arithmetic_expr   %prec UMINUS           
                         |identifier {
-                            string tmp = string("\n\tlw\t$t0,") + to_string(8 + 4*get_var(string(*$1._val),scopeNo).place) + string("($fp)");
+                            string reg = alloc_reg();
+                            string tmp = code_gen_lw(reg, get_var(string(*$1._val),scopeNo).place);
                             $$._asm = new string(tmp);
                             $$._type = $1._type;
+                            $$._is_num = 0;
+                            $$._reg = new string(reg);
                         }                                        
                         |constants {
-                            string tmp = string("\n\tli\t$t0,") + string(*$1._val);
+                            string reg = alloc_reg();
+                            string tmp = code_gen_li(reg, $1._value);
                             $$._asm = new string(tmp);
                             $$._val = $1._val;
                             $$._type = $1._type;
+                            $$._is_num = 1;
+                            $$._reg = new string(reg);
                         }
                         |array_access 
                         ;
@@ -350,8 +406,8 @@ typeSpecifier:          TOKEN_INTTYPE {$$._type = 0;is_declaration = 1;current_d
                         |TOKEN_VOIDTYPE {$$._type = 2;is_declaration = 1;current_dtype=2;}
                         ;
 
-constants:              TOKEN_INTCONST {$$._val = new string(*($1._val)); $$._type = 0;  }
-                        |TOKEN_CHARCONST {$$._val = new string(*($1._val)); $$._type = 1;}
+constants:              TOKEN_INTCONST {$$._val = new string(*($1._val)); $$._type = 0;$$._value=stoi(*$1._val);}
+                        |TOKEN_CHARCONST {$$._val = new string(*($1._val)); $$._type = 1;$$._value=stoi(*$1._val);}
                         ;   
 
 
@@ -374,6 +430,34 @@ void type_check(int left, int right, int flag)
 struct varialbe_s get_var(string name, int scope) {
     return variables[pair<string,int>(name,scope)];
 }
+
+string alloc_reg() {
+    for(int i=0;i<8;i++) {
+        if(regs[i] == 0) {
+            regs[i] = 1;
+            return string("t") + to_string(i);
+        }
+    }
+    return string("t8");
+}
+void free_regs() {
+    for(int i=0;i<8;i++) {
+        regs[i] = 0;
+    }
+}
+
+void free_reg(string reg) {
+    int num;
+    char c;
+    sscanf(reg.c_str(), "%c%d", &c, &num);
+    regs[num] = 0;
+}
+void init_regs() {
+    for(int i=0;i<8;i++) {
+        regs[i] = 0;
+    }
+}
+
 
 void yyerror(const char *s) {
   extern int yylineno;
@@ -450,9 +534,32 @@ string code_gen_end_func(int scope) {
 
 
 }
+
+string code_gen_lw(string reg, int place) {
+    return string("\n\tlw\t$") + reg + "," + to_string(8 + 4*place) + string("($fp)");
+}
+
+string code_gen_sw(string reg, int place) {
+    return string("\n\tsw\t$") + reg + "," + to_string(8 + 4*place) + string("($fp)");
+}
+
+string code_gen_li(string reg, int num) {
+    return string("\n\tli\t$") + reg + "," + to_string(num);
+}
+
+string code_gen_addu(string reg1, string reg2, string reg_res) {
+    return string("\n\taddu\t$") + reg_res + string(",$") + reg1 + string(",$") + reg2;
+}
+
+string code_gen_addiu(string reg1, int num, string reg_res) {
+    return string("\n\taddiu\t$") + reg_res + string(",$") + reg1 + string(",") + to_string(num);
+}
 /*==============================================================main function===============================================================*/
 
 int main(int argc , char* argv[]) {
+
+    init_regs();
+
     FILE *fp;
     char filename[100];
 
