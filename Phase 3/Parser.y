@@ -1,5 +1,6 @@
 %code requires{
 #include <string>
+#include <vector>
 using namespace std;
 
 }
@@ -12,6 +13,7 @@ using namespace std;
     #include <cstring>
     #include <fstream>
     #include <map>
+    #include <vector>
 
 
     using namespace std;
@@ -21,7 +23,8 @@ using namespace std;
         string value;
         int type; // 0:int 1:char 2:void
         int scope;
-        int place;
+        int start;
+        int end;
     };
 
 
@@ -29,6 +32,7 @@ using namespace std;
     map<int,int> scopes;
 
     map<int,int> regs;
+
 
     
 
@@ -51,13 +55,16 @@ using namespace std;
     void yyerror(const char* s);
     int yyparse();
     void add_var(string value,string name, int type, int scope);
+    void add_array_var(int size,string name, int type, int scope);
     int get_last_var_pos(int scope);
     int add_scope(int parent);
+    void check_array_bounds(string name, int scope, int place);
+    int is_var_array(string name, int scope);
 
     string code_gen_init_func(int scope);
     string code_gen_end_func(int scope);
-    string code_gen_lw(string reg, int place);
-    string code_gen_sw(string reg, int place);
+    string code_gen_lw(string reg, int start);
+    string code_gen_sw(string reg, int start);
     string code_gen_li(string reg, int num);
     string code_gen_addu(string reg1, string reg2, string reg_res);
     string code_gen_addiu(string reg1, int num, string reg_res);  
@@ -91,6 +98,8 @@ using namespace std;
           std::string * _reg;
           int _value;
           int _is_num;
+          int _pos;
+          std::vector<int>* _values;
      }token;
 }
 
@@ -202,10 +211,10 @@ arg:                    typeSpecifier   identifier
 
 
 statements:             statements   stmt {
-    if($$._asm == nullptr)
-        $$._asm = new string("");
-    $$._asm = new string( string(*$$._asm) + string(*$2._asm) );
-}
+                            if($$._asm == nullptr)
+                                $$._asm = new string("");
+                            $$._asm = new string( string(*$$._asm) + string(*$2._asm) );
+                        }
                         | {}
                         ;
 
@@ -263,19 +272,31 @@ parameter:              sub_expr
 
 declaration:            typeSpecifier  sub_decl  TOKEN_DOT {
                             is_declaration = 0;
-                            
                             $$._asm = new string(*$2._asm);
                             
+                        }
+                        |sub_decl TOKEN_DOT {
+                            is_declaration = 0;
+                            $$._asm = new string(*$1._asm);
                         }
                         ;
 
 sub_decl:               assignment_expr {
+                            
                             $$._asm = new string(*$1._asm);
                         }
                         |identifier {
+                            
                             add_var(string("0"),string(*$1._val), current_dtype, scopeNo);
+                            $$._asm = new string("");       
                         }       
-                        |array_access 
+                        |array_access {       
+                            $$._asm = new string("");
+                            if($1._value <= 0)
+                                yyerror("Array size must be greater than 0");
+                            
+                            add_array_var($1._value,string(*$1._val),current_dtype,scopeNo);
+                        }
                         ;
 
 expression:             sub_expr 	                                    
@@ -300,17 +321,37 @@ assgn :                 TOKEN_ASSIGNOP {rhs=1;}
 assignment_expr :       lhs assgn  arithmetic_expr  {
                             type_check($1._type,$3._type,1);
                             rhs=0;
-                            add_var(string(*$3._val),string(*$1._val), current_dtype, scopeNo);
+                            
+                            if(is_declaration && is_var_array(string(*$1._val), scopeNo))
+                                yyerror("Array must be initiilized like <1,2>");
 
                             string tmp = "";
                             tmp += string(*$3._asm);
-                            tmp += code_gen_sw("t0", get_var(string(*$1._val),scopeNo).place);
+                            tmp += code_gen_sw("t0", get_var(string(*$1._val),scopeNo).start+$1._pos);
                             
                             $$._asm = new string(tmp);
                             free_regs();
                         }     
                         |lhs assgn  functionCall            
-                        |lhs assgn array_init     
+                        |lhs assgn array_init {
+                            
+                            if($1._type != $3._type)
+                                yyerror("Array values and type must be the same type");
+                            if($1._value != $3._value)
+                                yyerror("Number of values provided for array initialization must be the same size as array defined");
+                            
+
+                            string tmp = "";
+                            int i=0;
+                            for(const auto &x : *$3._values) {
+                                tmp += code_gen_li("t0", x);
+                                tmp += code_gen_sw("t0", get_var(string(*$1._val),scopeNo).start+i);
+                                i++;
+                            }
+                            
+                            $$._asm = new string(tmp);
+                            
+                        }     
                         ;
 
 
@@ -319,9 +360,30 @@ lhs:                    identifier {
                             if(!is_declaration && !is_var_declared(string(*$1._val), scopeNo)) {
                                 yyerror("Variable not declared, but is used in assigment");
                             }
+                            if(is_declaration) 
+                                add_var(string(*$1._val),string(*$1._val), current_dtype, scopeNo);
+                            
                             $$._type = $1._type;
+                            $$._pos = 0;
                         }          
-                        |array_access              
+                        |array_access {
+                            if(!is_declaration && !is_var_declared(string(*$1._val), scopeNo)) {
+                                yyerror("Variable not declared, but is used in assigment");
+                            }
+                            
+                            if(is_declaration)
+                                add_array_var($1._value,string(*$1._val),current_dtype,scopeNo);
+
+
+                            if(!is_declaration)
+                                check_array_bounds(string(*$1._val), scopeNo, $1._value);
+
+                            $$._value = $1._value;
+                            $$._pos = $1._value;
+                            $$._type = $1._type;
+                            $$._val = new string(*$1._val);
+
+                        }           
                         ;
 
 identifier:             TOKEN_ID {
@@ -425,7 +487,7 @@ arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr {
                         |TOKEN_MINUS   arithmetic_expr   %prec UMINUS           
                         |identifier {
                             string reg = alloc_reg();
-                            string tmp = code_gen_lw(reg, get_var(string(*$1._val),scopeNo).place);
+                            string tmp = code_gen_lw(reg, get_var(string(*$1._val),scopeNo).start);
                             $$._asm = new string(tmp);
                             $$._type = $1._type;
                             $$._is_num = 0;
@@ -440,17 +502,51 @@ arithmetic_expr:        arithmetic_expr   TOKEN_PLUS   arithmetic_expr {
                             $$._is_num = 1;
                             $$._reg = new string(reg);
                         }
-                        |array_access 
+                        |array_access {
+                            check_array_bounds(string(*$1._val), scopeNo, $1._value);
+                            string reg = alloc_reg();
+                            string tmp = code_gen_lw(reg, get_var(string(*$1._val),scopeNo).start+$1._value);
+                            $$._asm = new string(tmp);
+                            $$._type = $1._type;
+                            $$._is_num = 0;
+                            $$._reg = new string(reg);
+                        }
                         ;
 
-array_init_vars:        array_init_vars TOKEN_COMMA constants 
-                        |constants
+array_init_vars:        array_init_vars TOKEN_COMMA constants {
+                            
+                            if($1._type != $3._type)
+                                yyerror("Array values must be same type");
+                            
+                            $$._value += 1; 
+                            $$._values = new vector<int>();
+                            for (const auto &x : *$1._values) {
+                                $$._values->push_back(x);                           
+                            }
+                            $$._values->push_back($3._value);
+                        }
+                        |constants {
+                            $$._value = 1;
+                            $$._type = $1._type;
+                            $$._values = new vector<int>({$1._value});
+                        }
                         ;
 
-array_init:             TOKEN_LS array_init_vars TOKEN_GR  
+array_init:             TOKEN_LS array_init_vars TOKEN_GR  {
+                            $$._value = $2._value;
+                            $$._type = $2._type;
+                            $$._values = new vector<int>();
+                            for (const auto &x : *$2._values) {
+                                $$._values->push_back(x);                           
+                            }
+                        }
                         ;
 
-array_access:           identifier TOKEN_LB constants TOKEN_RB                            
+array_access:           identifier TOKEN_LB constants TOKEN_RB {
+                            $$._val = new string(*$1._val);
+                            $$._value = $3._value;
+                            $$._type = $1._type;
+                        }                          
                         ;
 
 
@@ -519,13 +615,31 @@ void yyerror(const char *s) {
   cout<<"[-] ERROR : LINE "<<yylineno<<" COLUMN "<<columnNo<<" : "<<s<<"\n";
   exit(0);
 }
+
+int is_var_array(string name, int scope) {
+    struct varialbe_s tmp = variables[pair<string,int>(name, scope)];
+    if(tmp.start != tmp.end)
+        return 1;
+    return 0;
+}
+
+void check_array_bounds(string name, int scope, int place) {
+    struct varialbe_s tmp = variables[pair<string,int>(name,scope)];
+    if(tmp.start == tmp.end) {
+        yyerror("Variable is not an array");
+    }
+    int bound = tmp.end - tmp.start + 1;
+    if(place < 0 || place >= bound )
+        yyerror("Array index is out of range");
+}
+
 int get_last_var_pos(int scope) {
     int max_pos = -1;
     for (auto const& x : variables)
     {
         if(x.first.second == scope) {
-            if(x.second.place > max_pos) {
-                max_pos = x.second.place;        
+            if(x.second.end > max_pos) {
+                max_pos = x.second.end;        
             }
         }
     }
@@ -544,7 +658,8 @@ void add_var(string value,string name, int type, int scope) {
     if(variables.find(pair<string, int>(name,scope)) != variables.end()) {
         yyerror("Redeclaration of variable");
     }
-    tmp.place = get_last_var_pos(scope) + 1;
+    tmp.start = get_last_var_pos(scope) + 1;
+    tmp.end = tmp.start;
     tmp.scope = scope;
     tmp.value = value;
     tmp.type = type;
@@ -552,6 +667,21 @@ void add_var(string value,string name, int type, int scope) {
     variables[pair<string,int>(name,scope)] = tmp;
 
 }
+
+void add_array_var(int size,string name, int type, int scope) {
+    struct varialbe_s tmp;
+    if(variables.find(pair<string, int>(name,scope)) != variables.end()) {
+        yyerror("Redeclaration of variable");
+    }
+    tmp.start = get_last_var_pos(scope) + 1;
+    tmp.end = get_last_var_pos(scope) + size;
+    tmp.scope = scope;
+    tmp.type = type;
+
+    variables[pair<string,int>(name,scope)] = tmp;
+
+}
+
 int add_scope(int parent) {
     int max_scope = 0;
     for (auto const& x : scopes)

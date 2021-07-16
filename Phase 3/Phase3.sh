@@ -3,7 +3,7 @@ while getopts "s:" arg; do
     s) sample=$OPTARG;;
   esac
 done
-if [ -z ${sample+x} ]; then sample="../samples/sample1"; fi
+if [ -z ${sample+x} ]; then sample="../samples/sample1.sc"; fi
 
 rm -rf ./bin/*
 cd ./bin
